@@ -12,9 +12,9 @@ commonLabels:
   environment: development
 
 replicas:
-- name: windows-aspnet-app
-  count: 2
+- count: 2
+  name: windows-aspnet-app
 
 images:
 - name: acrdemoeastus2001.azurecr.io/windows-aspnet
-  newTag: v1.0
+  newTag: 200ecdc9fe309ec8145e2c7e1d69b136009f6ed9

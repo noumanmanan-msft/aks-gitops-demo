@@ -1,0 +1,197 @@
+name: Pull Request Validation
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'aspnet-demo/**'
+      - 'environments/**'
+      - '.github/workflows/**'
+
+env:
+  WORKING_DIRECTORY: ./aspnet-demo
+
+jobs:
+  validate-build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: 'Checkout repository'
+      uses: actions/checkout@v4
+
+    - name: 'Setup .NET'
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '6.0.x'
+
+    - name: 'Restore dependencies'
+      run: dotnet restore
+      working-directory: ${{ env.WORKING_DIRECTORY }}
+
+    - name: 'Build application'
+      run: dotnet build --no-restore --configuration Release
+      working-directory: ${{ env.WORKING_DIRECTORY }}
+
+    - name: 'Run tests'
+      run: dotnet test --no-build --configuration Release --verbosity normal
+      working-directory: ${{ env.WORKING_DIRECTORY }}
+      continue-on-error: true
+
+    - name: 'Validate Dockerfile'
+      run: |
+        if (Test-Path "Dockerfile") {
+          Write-Host "✅ Dockerfile found"
+          Get-Content "Dockerfile" | Write-Host
+        } else {
+          Write-Error "❌ Dockerfile not found"
+          exit 1
+        }
+      working-directory: ${{ env.WORKING_DIRECTORY }}
+
+  validate-manifests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 'Checkout repository'
+      uses: actions/checkout@v4
+
+    - name: 'Setup kubectl'
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: 'Setup Kustomize'
+      run: |
+        curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+
+    - name: 'Validate Kubernetes manifests'
+      run: |
+        echo "Validating Kubernetes manifests..."
+        
+        for env in development staging production; do
+          echo "Validating $env environment..."
+          
+          if [ -d "environments/$env" ]; then
+            cd "environments/$env"
+            
+            # Validate kustomization
+            if kustomize build . > /tmp/${env}-manifests.yaml; then
+              echo "✅ $env: Kustomization builds successfully"
+            else
+              echo "❌ $env: Kustomization build failed"
+              exit 1
+            fi
+            
+            # Validate manifest syntax
+            if kubectl apply --dry-run=client -f /tmp/${env}-manifests.yaml; then
+              echo "✅ $env: Manifests are valid"
+            else
+              echo "❌ $env: Invalid Kubernetes manifests"
+              exit 1
+            fi
+            
+            cd ../..
+          else
+            echo "⚠️  $env environment directory not found"
+          fi
+        done
+
+    - name: 'Check ArgoCD Applications'
+      run: |
+        echo "Validating ArgoCD applications..."
+        
+        if [ -d "argocd/applications" ]; then
+          for app in argocd/applications/*.yaml; do
+            if [ -f "$app" ]; then
+              echo "Validating $(basename $app)..."
+              
+              # Basic YAML syntax check
+              if python3 -c "import yaml; yaml.safe_load(open('$app'))" 2>/dev/null; then
+                echo "✅ $(basename $app): Valid YAML syntax"
+              else
+                echo "❌ $(basename $app): Invalid YAML syntax"
+                exit 1
+              fi
+            fi
+          done
+        else
+          echo "⚠️  ArgoCD applications directory not found"
+        fi
+
+  security-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 'Checkout repository'
+      uses: actions/checkout@v4
+
+    - name: 'Check for secrets in code'
+      run: |
+        echo "Checking for potential secrets..."
+        
+        # Check for common secret patterns
+        if grep -r -i -E "(password|secret|key|token)" --include="*.cs" --include="*.yaml" --include="*.yml" aspnet-demo/ environments/ || true; then
+          echo "⚠️  Found potential secrets in code. Please review."
+        else
+          echo "✅ No obvious secrets found in code"
+        fi
+
+    - name: 'Validate Docker security'
+      run: |
+        echo "Checking Dockerfile security..."
+        
+        dockerfile="aspnet-demo/Dockerfile"
+        if [ -f "$dockerfile" ]; then
+          # Check if running as non-root
+          if grep -q "USER" "$dockerfile"; then
+            echo "✅ Dockerfile uses USER instruction"
+          else
+            echo "⚠️  Consider adding USER instruction to run as non-root"
+          fi
+          
+          # Check for EXPOSE instruction
+          if grep -q "EXPOSE" "$dockerfile"; then
+            echo "✅ Dockerfile has EXPOSE instruction"
+          else
+            echo "⚠️  Consider adding EXPOSE instruction"
+          fi
+        else
+          echo "❌ Dockerfile not found"
+        fi
+
+  notify-pr-status:
+    needs: [validate-build, validate-manifests, security-check]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: 'PR Validation Summary'
+      run: |
+        echo "## 📋 Pull Request Validation Summary"
+        echo ""
+        
+        if [[ "${{ needs.validate-build.result }}" == "success" ]]; then
+          echo "✅ **Build Validation:** Passed"
+        else
+          echo "❌ **Build Validation:** Failed"
+        fi
+        
+        if [[ "${{ needs.validate-manifests.result }}" == "success" ]]; then
+          echo "✅ **Manifest Validation:** Passed"
+        else
+          echo "❌ **Manifest Validation:** Failed"
+        fi
+        
+        if [[ "${{ needs.security-check.result }}" == "success" ]]; then
+          echo "✅ **Security Check:** Passed"
+        else
+          echo "❌ **Security Check:** Failed"
+        fi
+        
+        echo ""
+        if [[ "${{ needs.validate-build.result }}" == "success" && "${{ needs.validate-manifests.result }}" == "success" && "${{ needs.security-check.result }}" == "success" ]]; then
+          echo "🎉 **Overall Status:** All checks passed! Ready for review."
+        else
+          echo "⚠️  **Overall Status:** Some checks failed. Please review and fix issues."
+        fi

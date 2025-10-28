@@ -11,6 +11,11 @@ on:
     paths:
       - 'aspnet-demo/**'
 
+permissions:
+  contents: write
+  packages: write
+  security-events: write
+
 env:
   REGISTRY_NAME: acrdemoeastus2001
   IMAGE_NAME: windows-aspnet

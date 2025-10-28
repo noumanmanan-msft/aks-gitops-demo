@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: windows-aspnet-app
+  labels:
+    app: windows-aspnet-app
+    version: v1.0
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: windows-aspnet-app
+  template:
+    metadata:
+      labels:
+        app: windows-aspnet-app
+        version: v1.0
+    spec:
+      nodeSelector:
+        kubernetes.io/os: windows
+      containers:
+      - name: aspnet-app
+        image: acrdemoeastus2001.azurecr.io/windows-aspnet:v1.0
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 443
+          name: https
+        env:
+        - name: ASPNETCORE_ENVIRONMENT
+          value: "Production"
+        - name: ASPNETCORE_URLS
+          value: "http://+:80"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /hello
+            port: 80
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /hello
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      imagePullSecrets:
+      - name: acr-secret

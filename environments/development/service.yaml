@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: windows-aspnet-service
+  labels:
+    app: windows-aspnet-app
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: windows-aspnet-app

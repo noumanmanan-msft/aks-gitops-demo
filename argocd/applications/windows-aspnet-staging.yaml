@@ -1,0 +1,33 @@
+﻿apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: windows-aspnet-staging
+  namespace: argocd
+  labels:
+    app: windows-aspnet-app
+    environment: staging
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/noumanmanan-msft/aks-gitops-demo.git  # Update with your repo URL
+    targetRevision: HEAD
+    path: environments/staging
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: false  # Manual approval for staging
+      allowEmpty: false
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+  revisionHistoryLimit: 5

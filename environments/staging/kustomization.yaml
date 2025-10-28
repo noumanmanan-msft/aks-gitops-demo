@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- namespace.yaml
+- deployment.yaml
+- service.yaml
+- hpa.yaml
+
+namespace: staging
+
+commonLabels:
+  environment: staging
+
+replicas:
+- name: windows-aspnet-app
+  count: 3
+
+images:
+- name: acrdemoeastus2001.azurecr.io/windows-aspnet
+  newTag: v1.0

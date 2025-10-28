@@ -1,0 +1,30 @@
+﻿apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: windows-aspnet-production
+  namespace: argocd
+  labels:
+    app: windows-aspnet-app
+    environment: production
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/noumanmanan-msft/aks-gitops-demo.git  # Update with your repo URL
+    targetRevision: HEAD
+    path: environments/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: production
+  syncPolicy:
+    # No automated sync for production - manual only
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    retry:
+      limit: 2
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 10m
+  revisionHistoryLimit: 10

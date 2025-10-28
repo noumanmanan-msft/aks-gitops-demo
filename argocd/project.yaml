@@ -1,0 +1,80 @@
+﻿apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: windows-aspnet-project
+  namespace: argocd
+spec:
+  description: Project for Windows ASP.NET GitOps applications
+  
+  # Source repositories
+  sourceRepos:
+  - 'https://github.com/noumanmanan-msft/aks-gitops-demo.git'  # Update with your repo URL
+  - 'https://charts.bitnami.com/bitnami'  # Example for Helm charts if needed
+  
+  # Destination clusters and namespaces
+  destinations:
+  - namespace: development
+    server: https://kubernetes.default.svc
+  - namespace: staging
+    server: https://kubernetes.default.svc  
+  - namespace: production
+    server: https://kubernetes.default.svc
+  
+  # Cluster resource whitelist
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRole
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRoleBinding
+    
+  # Namespace resource whitelist  
+  namespaceResourceWhitelist:
+  - group: ''
+    kind: ConfigMap
+  - group: ''
+    kind: Secret
+  - group: ''
+    kind: Service
+  - group: ''
+    kind: ServiceAccount
+  - group: apps
+    kind: Deployment
+  - group: apps
+    kind: ReplicaSet
+  - group: autoscaling
+    kind: HorizontalPodAutoscaler
+  - group: policy
+    kind: PodDisruptionBudget
+  - group: networking.k8s.io
+    kind: NetworkPolicy
+  - group: networking.k8s.io
+    kind: Ingress
+    
+  # RBAC roles for this project
+  roles:
+  - name: developer
+    description: Developer access to dev environment
+    policies:
+    - p, proj:windows-aspnet-project:developer, applications, get, windows-aspnet-project/development, allow
+    - p, proj:windows-aspnet-project:developer, applications, sync, windows-aspnet-project/development, allow
+    - p, proj:windows-aspnet-project:developer, applications, override, windows-aspnet-project/development, allow
+    groups:
+    - windows-aspnet-developers
+    
+  - name: staging-deployer
+    description: Access to staging environment
+    policies:
+    - p, proj:windows-aspnet-project:staging-deployer, applications, get, windows-aspnet-project/staging, allow
+    - p, proj:windows-aspnet-project:staging-deployer, applications, sync, windows-aspnet-project/staging, allow
+    groups:
+    - windows-aspnet-staging-deployers
+    
+  - name: production-deployer
+    description: Access to production environment
+    policies:
+    - p, proj:windows-aspnet-project:production-deployer, applications, get, windows-aspnet-project/production, allow
+    - p, proj:windows-aspnet-project:production-deployer, applications, sync, windows-aspnet-project/production, allow
+    groups:
+    - windows-aspnet-production-deployers

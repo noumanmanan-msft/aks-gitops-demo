@@ -1,0 +1,9 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: windows-aspnet-pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: windows-aspnet-app

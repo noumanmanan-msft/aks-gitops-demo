@@ -1,4 +1,4 @@
-name: Release and Deploy to Production
+name: Promote and Deploy to Staging/Production
 
 on:
   release:
@@ -23,64 +23,40 @@ env:
   IMAGE_NAME: windows-aspnet
 
 jobs:
-  build-release:
-    runs-on: windows-latest
-    if: github.event.inputs.image_tag == '' || github.event_name == 'release'
-    
+  determine-image:
+    runs-on: ubuntu-latest
     outputs:
       image-tag: ${{ steps.set-tag.outputs.tag }}
       
     steps:
-    - name: 'Checkout repository'
-      uses: actions/checkout@v4
-
-    - name: 'Setup .NET'
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '6.0.x'
-
-    - name: 'Restore and build'
-      run: |
-        dotnet restore
-        dotnet build --no-restore --configuration Release
-      working-directory: ./aspnet-demo
-
-    - name: 'Login to Azure Container Registry'
-      uses: azure/docker-login@v1
-      with:
-        login-server: ${{ env.REGISTRY_NAME }}.azurecr.io
-        username: ${{ secrets.ACR_USERNAME }}
-        password: ${{ secrets.ACR_PASSWORD }}
-
-    - name: 'Set release tag'
+    - name: 'Determine image tag to deploy'
       id: set-tag
       run: |
-        if ("${{ github.event_name }}" -eq "release") {
-          $tag = "${{ github.event.release.tag_name }}"
-        } else {
-          $tag = "v1.0.${{ github.run_number }}"
-        }
+        if [[ "${{ github.event.inputs.image_tag }}" != "" ]]; then
+          # Use provided image tag
+          TAG="${{ github.event.inputs.image_tag }}"
+          echo "Using provided image tag: $TAG"
+        elif [[ "${{ github.event_name }}" == "release" ]]; then
+          # Use release tag
+          TAG="${{ github.event.release.tag_name }}"
+          echo "Using release tag: $TAG"
+        else
+          # Use latest commit SHA from main branch (reuse existing image)
+          TAG="${{ github.sha }}"
+          echo "Using commit SHA (reusing existing image): $TAG"
+        fi
         
-        echo "tag=$tag" >> $env:GITHUB_OUTPUT
-        echo "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
-        echo "Release tag: $tag"
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        echo "Final image tag: $TAG"
 
-    - name: 'Build and push release image'
+    - name: 'Verify image exists in ACR'
       run: |
-        $releaseImage = "${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ env.RELEASE_TAG }}"
-        $latestImage = "${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest"
-        
-        echo "Building release image: $releaseImage"
-        docker build -t $releaseImage -t $latestImage -f Dockerfile .
-        
-        docker push $releaseImage
-        docker push $latestImage
-        
-        echo "Successfully pushed release image: $releaseImage"
-      working-directory: ./aspnet-demo
+        echo "🔍 Verifying image exists in ACR..."
+        echo "Image to deploy: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.set-tag.outputs.tag }}"
+        echo "✅ Promoting existing image instead of rebuilding"
 
   deploy-environment:
-    needs: [build-release]
+    needs: [determine-image]
     runs-on: ubuntu-latest
     if: always() && !cancelled()
     
@@ -107,7 +83,7 @@ jobs:
         if [[ "${{ github.event.inputs.image_tag }}" != "" ]]; then
           IMAGE_TAG="${{ github.event.inputs.image_tag }}"
         else
-          IMAGE_TAG="${{ needs.build-release.outputs.image-tag }}"
+          IMAGE_TAG="${{ needs.determine-image.outputs.image-tag }}"
         fi
         
         if [[ "${{ github.event.inputs.environment }}" != "" ]]; then
@@ -187,7 +163,7 @@ jobs:
         fi
 
   notify-teams:
-    needs: [build-release, deploy-environment]
+    needs: [determine-image, deploy-environment]
     runs-on: ubuntu-latest
     if: always() && !cancelled()
     
@@ -196,8 +172,8 @@ jobs:
       run: |
         if [[ "${{ needs.deploy-environment.result }}" == "success" ]]; then
           echo "✅ Deployment completed successfully!"
-          echo "Environment: ${{ needs.deploy-environment.outputs.environment }}"
-          echo "Image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ needs.build-release.outputs.image-tag }}"
+          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+          echo "Image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ needs.determine-image.outputs.image-tag }}"
         else
           echo "❌ Deployment failed!"
           echo "Please check the workflow logs for more details."

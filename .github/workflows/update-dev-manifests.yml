@@ -1,4 +1,4 @@
-name: Update Development Environment via PR
+name: Auto-Update Development Environment
 
 on:
   workflow_run:
@@ -9,14 +9,13 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 env:
   REGISTRY_NAME: acrdemoeastus2001
   IMAGE_NAME: windows-aspnet
 
 jobs:
-  update-dev-manifests:
+  auto-update-development:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     
@@ -27,11 +26,11 @@ jobs:
         # Get the commit SHA from the triggering workflow
         COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
         echo "commit-sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
-        echo "branch-name=update-dev-${COMMIT_SHA:0:8}" >> $GITHUB_OUTPUT
 
     - name: 'Checkout repository'
       uses: actions/checkout@v4
       with:
+        ref: main
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
 
@@ -45,11 +44,14 @@ jobs:
         sudo mv kustomize /usr/local/bin/
         kustomize version
 
-    - name: 'Create new branch'
+    - name: 'Setup Git'
       run: |
-        git checkout -b ${{ steps.workflow-info.outputs.branch-name }}
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Actions"
+        
+        # Ensure we're on main branch
+        git checkout main
+        git pull origin main
 
     - name: 'Update development environment'
       run: |
@@ -63,55 +65,22 @@ jobs:
         # Show the changes
         git diff
 
-    - name: 'Commit changes'
+    - name: 'Commit and Push Changes'
       run: |
         git add environments/development/
         
         if git diff --staged --quiet; then
           echo "No changes to commit"
-          exit 0
         else
-          git commit -m "🚀 Update development image to ${{ steps.workflow-info.outputs.commit-sha }}
+          git commit -m "🚀 Auto-update development environment to ${{ steps.workflow-info.outputs.commit-sha }}
           
-          - Updated by: GitHub Actions (Auto-update)
+          - Updated by: GitHub Actions (Auto-deployment)
           - Triggering workflow: ${{ github.event.workflow_run.name }}
           - Run ID: ${{ github.event.workflow_run.id }}
-          - Image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}"
+          - Image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}
           
-          git push origin ${{ steps.workflow-info.outputs.branch-name }}
+          This commit triggers ArgoCD to automatically sync the development environment."
+          
+          git push origin main
+          echo "✅ Successfully updated development environment manifest"
         fi
-
-    - name: 'Create Pull Request'
-      uses: peter-evans/create-pull-request@v6
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        branch: ${{ steps.workflow-info.outputs.branch-name }}
-        title: '🚀 Auto-update development environment to ${{ steps.workflow-info.outputs.commit-sha }}'
-        body: |
-          ## Automated Development Environment Update
-          
-          This PR was automatically created by GitHub Actions after a successful build.
-          
-          **Changes:**
-          - Updated development environment image tag
-          - New image: `${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}`
-          
-          **Triggered by:**
-          - Workflow: ${{ github.event.workflow_run.name }}
-          - Run: [${{ github.event.workflow_run.id }}](${{ github.event.workflow_run.html_url }})
-          - Commit: ${{ steps.workflow-info.outputs.commit-sha }}
-          
-          **What happens after merge:**
-          - ArgoCD will detect the manifest changes
-          - Development environment will be automatically updated
-          - New pods will be deployed with the updated image
-          
-          ---
-          
-          🤖 This PR can be safely auto-merged for development environment updates.
-        labels: |
-          gitops
-          development
-          auto-update
-        assignees: ${{ github.actor }}
-        draft: false

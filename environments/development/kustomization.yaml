@@ -17,4 +17,4 @@ replicas:
 
 images:
 - name: acrdemoeastus2001.azurecr.io/windows-aspnet
-  newTag: 95b54a0317388ed63a31b4a7f3948dca162cbba4
+  newTag: 59ab1bd7cac56f0dba7037d65a1505c96c78ef09

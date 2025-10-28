@@ -1,0 +1,112 @@
+name: Update Development Environment via PR
+
+on:
+  workflow_run:
+    workflows: ["Build and Deploy Windows ASP.NET to ACR"]
+    types:
+      - completed
+    branches: [ main ]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  REGISTRY_NAME: acrdemoeastus2001
+  IMAGE_NAME: windows-aspnet
+
+jobs:
+  update-dev-manifests:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    
+    steps:
+    - name: 'Get workflow run info'
+      id: workflow-info
+      run: |
+        # Get the commit SHA from the triggering workflow
+        COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
+        echo "commit-sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+        echo "branch-name=update-dev-${COMMIT_SHA:0:8}" >> $GITHUB_OUTPUT
+
+    - name: 'Checkout repository'
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: 'Setup Kustomize'
+      run: |
+        curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+
+    - name: 'Create new branch'
+      run: |
+        git checkout -b ${{ steps.workflow-info.outputs.branch-name }}
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Actions"
+
+    - name: 'Update development environment'
+      run: |
+        cd environments/development
+        
+        # Update the image tag
+        kustomize edit set image ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}
+        
+        echo "Updated development environment with image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}"
+        
+        # Show the changes
+        git diff
+
+    - name: 'Commit changes'
+      run: |
+        git add environments/development/
+        
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+          exit 0
+        else
+          git commit -m "🚀 Update development image to ${{ steps.workflow-info.outputs.commit-sha }}
+          
+          - Updated by: GitHub Actions (Auto-update)
+          - Triggering workflow: ${{ github.event.workflow_run.name }}
+          - Run ID: ${{ github.event.workflow_run.id }}
+          - Image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}"
+          
+          git push origin ${{ steps.workflow-info.outputs.branch-name }}
+        fi
+
+    - name: 'Create Pull Request'
+      uses: peter-evans/create-pull-request@v6
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        branch: ${{ steps.workflow-info.outputs.branch-name }}
+        title: '🚀 Auto-update development environment to ${{ steps.workflow-info.outputs.commit-sha }}'
+        body: |
+          ## Automated Development Environment Update
+          
+          This PR was automatically created by GitHub Actions after a successful build.
+          
+          **Changes:**
+          - Updated development environment image tag
+          - New image: `${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}`
+          
+          **Triggered by:**
+          - Workflow: ${{ github.event.workflow_run.name }}
+          - Run: [${{ github.event.workflow_run.id }}](${{ github.event.workflow_run.html_url }})
+          - Commit: ${{ steps.workflow-info.outputs.commit-sha }}
+          
+          **What happens after merge:**
+          - ArgoCD will detect the manifest changes
+          - Development environment will be automatically updated
+          - New pods will be deployed with the updated image
+          
+          ---
+          
+          🤖 This PR can be safely auto-merged for development environment updates.
+        labels: |
+          gitops
+          development
+          auto-update
+        assignees: ${{ github.actor }}
+        draft: false

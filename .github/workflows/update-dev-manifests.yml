@@ -44,43 +44,66 @@ jobs:
         sudo mv kustomize /usr/local/bin/
         kustomize version
 
-    - name: 'Setup Git'
+    - name: 'Update development environment with retry logic'
       run: |
+        # Configure git
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Actions"
         
-        # Ensure we're on main branch
-        git checkout main
-        git pull origin main
-
-    - name: 'Update development environment'
-      run: |
-        cd environments/development
-        
-        # Update the image tag
-        kustomize edit set image ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}
-        
-        echo "Updated development environment with image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}"
-        
-        # Show the changes
-        git diff
-
-    - name: 'Commit and Push Changes'
-      run: |
-        git add environments/development/
-        
-        if git diff --staged --quiet; then
-          echo "No changes to commit"
-        else
-          git commit -m "🚀 Auto-update development environment to ${{ steps.workflow-info.outputs.commit-sha }}
+        # Function to attempt update with retry
+        attempt_update() {
+          local max_retries=3
+          local retry_count=0
           
-          - Updated by: GitHub Actions (Auto-deployment)
-          - Triggering workflow: ${{ github.event.workflow_run.name }}
-          - Run ID: ${{ github.event.workflow_run.id }}
-          - Image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}
+          while [ $retry_count -lt $max_retries ]; do
+            echo "Attempt $((retry_count + 1)) of $max_retries"
+            
+            # Ensure we're up to date
+            git checkout main
+            git pull origin main
+            
+            # Update the image tag
+            cd environments/development
+            kustomize edit set image ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}
+            cd ..
+            
+            echo "Updated development environment with image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}"
+            
+            # Check if there are changes to commit
+            git add environments/development/
+            
+            if git diff --staged --quiet; then
+              echo "No changes to commit - development environment already up to date"
+              return 0
+            fi
+            
+            # Commit the changes
+            git commit -m "🚀 Auto-update development environment to ${{ steps.workflow-info.outputs.commit-sha }}
+            
+            - Updated by: GitHub Actions (Auto-deployment)
+            - Triggering workflow: ${{ github.event.workflow_run.name }}
+            - Run ID: ${{ github.event.workflow_run.id }}
+            - Image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}
+            
+            This commit triggers ArgoCD to automatically sync the development environment."
+            
+            # Try to push
+            if git push origin main; then
+              echo "✅ Successfully updated development environment manifest"
+              return 0
+            else
+              echo "⚠️  Push failed, retrying in 5 seconds..."
+              sleep 5
+              retry_count=$((retry_count + 1))
+              
+              # Reset to clean state for next attempt
+              git reset --hard HEAD~1
+            fi
+          done
           
-          This commit triggers ArgoCD to automatically sync the development environment."
-          
-          git push origin main
-          echo "✅ Successfully updated development environment manifest"
-        fi
+          echo "❌ Failed to push after $max_retries attempts"
+          return 1
+        }
+        
+        # Execute the update with retry logic
+        attempt_update

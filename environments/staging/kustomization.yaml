@@ -13,9 +13,9 @@ commonLabels:
   environment: staging
 
 replicas:
-- name: windows-aspnet-app
-  count: 3
+- count: 3
+  name: windows-aspnet-app
 
 images:
 - name: acrdemoeastus2001.azurecr.io/windows-aspnet
-  newTag: 200ecdc9fe309ec8145e2c7e1d69b136009f6ed9
+  newTag: f5e3caa3cd5cfe0c445fefd633d2144f5e4fc088

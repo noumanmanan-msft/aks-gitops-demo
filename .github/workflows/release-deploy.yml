@@ -18,6 +18,10 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: write
+  pull-requests: write
+
 env:
   REGISTRY_NAME: acrdemoeastus2001
   IMAGE_NAME: windows-aspnet
@@ -158,7 +162,7 @@ jobs:
           - Triggered by: ${{ github.event_name }}
           - Workflow: ${{ github.workflow }}"
           
-          git push
+          git push origin main
           echo "Successfully deployed to staging environment"
         fi
 

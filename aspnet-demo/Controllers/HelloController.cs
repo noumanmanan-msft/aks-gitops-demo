@@ -8,6 +8,6 @@ namespace AspNetDemo.Controllers
     public class HelloController : ControllerBase
     {
         [HttpGet]
-        public string Get() => "Hello World from ASP.NET on Windows Container using kubectl!!!";
+        public string Get() => "Hello World from ASP.NET on Windows Container using ArgoCD!";
     }
 }

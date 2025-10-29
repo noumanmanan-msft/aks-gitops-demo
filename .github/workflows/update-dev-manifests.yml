@@ -62,14 +62,14 @@ jobs:
             git checkout main
             git pull origin main
             
-            # Update the image tag
+            # Update the image tag (stay in root directory)
             cd environments/development
             kustomize edit set image ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}
-            cd ..
+            cd ../..
             
             echo "Updated development environment with image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.workflow-info.outputs.commit-sha }}"
             
-            # Check if there are changes to commit
+            # Check if there are changes to commit (now from root directory)
             git add environments/development/
             
             if git diff --staged --quiet; then

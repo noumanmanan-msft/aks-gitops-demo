@@ -15,9 +15,9 @@ labels:
     environment: production
 
 replicas:
-- name: windows-aspnet-app
-  count: 5
+- count: 5
+  name: windows-aspnet-app
 
 images:
 - name: acrdemoeastus2001.azurecr.io/windows-aspnet
-  newTag: v1.0
+  newTag: 3e2c6a438c9bb8970cd1439048c1288c2f96feb5

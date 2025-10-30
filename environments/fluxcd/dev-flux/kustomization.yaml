@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- deployment.yaml
+
+namespace: dev-flux
+
+commonLabels:
+  environment: dev-flux
+  gitops-tool: fluxcd
+
+replicas:
+- count: 2
+  name: windows-aspnet-app
+
+images:
+- name: acrdemoeastus2001.azurecr.io/windows-aspnet
+  newTag: 02bff8b5b0787d7e83706c77178dfe0dcaf12d7e
+
+patchesStrategicMerge:
+- |-
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: windows-aspnet-app
+    namespace: dev-flux
+  spec:
+    template:
+      spec:
+        containers:
+        - name: aspnet-app
+          env:
+          - name: ENVIRONMENT_NAME
+            value: "dev-flux"
+          - name: DEPLOYMENT_METHOD  
+            value: "FluxCD GitOps"

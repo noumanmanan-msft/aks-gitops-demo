@@ -9,8 +9,9 @@ resources:
 
 namespace: staging
 
-commonLabels:
-  environment: staging
+labels:
+- pairs:
+    environment: staging
 
 replicas:
 - count: 3

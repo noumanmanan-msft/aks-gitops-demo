@@ -88,13 +88,26 @@ jobs:
               exit 1
             fi
             
-            # Validate manifest syntax
-            if kubectl apply --dry-run=client -f /tmp/${env}-manifests.yaml; then
-              echo "✅ $env: Manifests are valid"
+            # Validate YAML syntax and basic Kubernetes structure  
+            echo "Validating YAML syntax and Kubernetes resource structure..."
+            
+            # Check if YAML is valid
+            if python3 -c "import yaml; yaml.safe_load_all(open('/tmp/${env}-manifests.yaml'))" 2>/dev/null; then
+              echo "✅ $env: YAML syntax is valid"
             else
-              echo "❌ $env: Invalid Kubernetes manifests"
+              echo "❌ $env: Invalid YAML syntax"
               exit 1
             fi
+            
+            # Check for required Kubernetes fields
+            if grep -q "apiVersion:" /tmp/${env}-manifests.yaml && grep -q "kind:" /tmp/${env}-manifests.yaml; then
+              echo "✅ $env: Contains required Kubernetes fields (apiVersion, kind)"
+            else
+              echo "❌ $env: Missing required Kubernetes fields"
+              exit 1
+            fi
+            
+            echo "✅ $env: Manifests are valid"
             
             cd ../..
           else

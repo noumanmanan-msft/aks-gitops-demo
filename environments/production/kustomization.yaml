@@ -10,8 +10,9 @@ resources:
 
 namespace: production
 
-commonLabels:
-  environment: production
+labels:
+- pairs:
+    environment: production
 
 replicas:
 - name: windows-aspnet-app

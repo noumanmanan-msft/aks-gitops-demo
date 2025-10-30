@@ -142,37 +142,53 @@ jobs:
         
         echo "Updated $ENVIRONMENT environment with image: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
 
-    - name: 'Create Pull Request for Production'
+    - name: 'Create branch and push for Production'
       if: steps.deployment-info.outputs.environment == 'production'
-      uses: peter-evans/create-pull-request@v6
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: |
-          🚀 Deploy ${{ steps.deployment-info.outputs.image-tag }} to Production
-          
-          - Environment: Production
+      run: |
+        BRANCH_NAME="deploy-production-${{ steps.deployment-info.outputs.image-tag }}"
+        
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Create and switch to new branch
+        git checkout -b "$BRANCH_NAME"
+        
+        # Add changes
+        git add environments/production/
+        
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "🚀 Deploy ${{ steps.deployment-info.outputs.image-tag }} to Production
+
+          - Environment: Production  
           - Image Tag: ${{ steps.deployment-info.outputs.image-tag }}
-          - Triggered by: ${{ github.event_name }}
-        title: 'Deploy ${{ steps.deployment-info.outputs.image-tag }} to Production'
-        body: |
-          ## Production Deployment Request
+          - Triggered by: ${{ github.event_name }}"
           
-          **Image Tag:** `${{ steps.deployment-info.outputs.image-tag }}`
-          **Environment:** Production
-          **Triggered by:** ${{ github.event_name }}
+          # Push the branch
+          git push origin "$BRANCH_NAME"
           
-          ### Changes
-          - Updates production environment to use image: `${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.deployment-info.outputs.image-tag }}`
-          
-          ### Deployment Process
-          1. Review and approve this PR
-          2. Merge to deploy to production
-          3. Monitor deployment in ArgoCD UI
-          
-          ### Rollback
-          If rollback is needed, revert this PR or update the image tag in the production manifest.
-        branch: deploy-production-${{ steps.deployment-info.outputs.image-tag }}
-        delete-branch: true
+          echo "✅ Branch '$BRANCH_NAME' created and pushed"
+          echo "🔗 Create PR manually at: https://github.com/${{ github.repository }}/compare/$BRANCH_NAME"
+          echo ""
+          echo "## 📋 PR Details to use:"
+          echo "**Title:** Deploy ${{ steps.deployment-info.outputs.image-tag }} to Production"
+          echo ""
+          echo "**Description:**"
+          echo "## Production Deployment Request"
+          echo ""
+          echo "**Image Tag:** \`${{ steps.deployment-info.outputs.image-tag }}\`"
+          echo "**Environment:** Production"
+          echo "**Triggered by:** ${{ github.event_name }}"
+          echo ""
+          echo "### Changes"
+          echo "- Updates production environment to use image: \`${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.deployment-info.outputs.image-tag }}\`"
+          echo ""
+          echo "### Deployment Process"
+          echo "1. Review and approve this PR"
+          echo "2. Merge to deploy to production"  
+          echo "3. Monitor deployment in ArgoCD UI"
+        fi
 
     - name: 'Direct commit for Staging'
       if: steps.deployment-info.outputs.environment == 'staging'

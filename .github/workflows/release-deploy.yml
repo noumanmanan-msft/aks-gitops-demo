@@ -145,10 +145,15 @@ jobs:
     - name: 'Create branch and push for Production'
       if: steps.deployment-info.outputs.environment == 'production'
       run: |
-        BRANCH_NAME="deploy-production-${{ steps.deployment-info.outputs.image-tag }}"
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        BRANCH_NAME="deploy-production-${{ steps.deployment-info.outputs.image-tag }}-${TIMESTAMP}"
         
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
+        
+        # Ensure we're on main branch and up to date
+        git checkout main
+        git pull origin main
         
         # Create and switch to new branch
         git checkout -b "$BRANCH_NAME"

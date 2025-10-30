@@ -55,11 +55,6 @@ jobs:
     - name: 'Checkout repository'
       uses: actions/checkout@v4
 
-    - name: 'Setup kubectl'
-      uses: azure/setup-kubectl@v3
-      with:
-        version: 'v1.28.0'
-
     - name: 'Setup Kustomize'
       run: |
         # Use direct binary download to avoid GitHub rate limiting

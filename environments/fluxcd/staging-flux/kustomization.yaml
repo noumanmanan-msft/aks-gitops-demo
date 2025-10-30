@@ -6,9 +6,10 @@ resources:
 
 namespace: staging-flux
 
-commonLabels:
-  environment: staging-flux
-  gitops-tool: fluxcd
+labels:
+- pairs:
+    environment: staging-flux
+    gitops-tool: fluxcd
 
 replicas:
 - count: 3

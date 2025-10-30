@@ -6,10 +6,9 @@ resources:
 
 namespace: dev-flux
 
-labels:
-- pairs:
-    environment: dev-flux
-    gitops-tool: fluxcd
+commonLabels:
+  environment: dev-flux
+  gitops-tool: fluxcd
 
 replicas:
 - count: 2

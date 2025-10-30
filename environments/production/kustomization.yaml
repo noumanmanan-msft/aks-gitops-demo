@@ -10,9 +10,8 @@ resources:
 
 namespace: production
 
-labels:
-- pairs:
-    environment: production
+commonLabels:
+  environment: production
 
 replicas:
 - count: 5

@@ -1,0 +1,20 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: aks-gitops-demo
+  namespace: flux-system
+spec:
+  interval: 1m
+  ref:
+    branch: main
+  url: https://github.com/noumanmanan-msft/aks-gitops-demo
+  ignore: |
+    # Ignore ArgoCD directory to prevent conflicts
+    /argocd/
+    # Ignore ArgoCD-managed environments
+    /environments/development/
+    /environments/staging/
+    /environments/production/
+    # Ignore CI/CD workflows that are ArgoCD-specific
+    /.github/workflows/update-dev-manifests.yml
+    /.github/workflows/release-deploy.yml

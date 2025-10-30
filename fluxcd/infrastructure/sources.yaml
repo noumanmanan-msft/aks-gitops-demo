@@ -1,0 +1,10 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: aks-gitops-demo
+  namespace: flux-system
+spec:
+  interval: 30s
+  ref:
+    branch: main
+  url: https://github.com/noumanmanan-msft/aks-gitops-demo

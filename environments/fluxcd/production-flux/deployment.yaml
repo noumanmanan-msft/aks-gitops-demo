@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: windows-aspnet-app
+  namespace: production-flux
+  labels:
+    app: windows-aspnet-app
+    environment: production-flux
+    gitops-tool: fluxcd
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: windows-aspnet-app
+      environment: production-flux
+  template:
+    metadata:
+      labels:
+        app: windows-aspnet-app
+        environment: production-flux
+        gitops-tool: fluxcd
+    spec:
+      nodeSelector:
+        kubernetes.io/os: windows
+      containers:
+      - name: aspnet-app
+        image: acrdemoeastus2001.azurecr.io/windows-aspnet:v1.0
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: ASPNETCORE_URLS
+          value: "http://+:8080"
+        - name: ENVIRONMENT_NAME
+          value: "production-flux"
+        - name: DEPLOYMENT_METHOD
+          value: "FluxCD GitOps"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: windows-aspnet-service
+  namespace: production-flux
+  labels:
+    app: windows-aspnet-app
+    environment: production-flux
+    gitops-tool: fluxcd
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: windows-aspnet-app
+    environment: production-flux
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: windows-aspnet-hpa
+  namespace: production-flux
+  labels:
+    app: windows-aspnet-app
+    environment: production-flux
+    gitops-tool: fluxcd
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: windows-aspnet-app
+  minReplicas: 5
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aspnet-config
+  namespace: production-flux
+  labels:
+    app: windows-aspnet-app
+    environment: production-flux
+    gitops-tool: fluxcd
+data:
+  appsettings.json: |
+    {
+      "Environment": "production-flux",
+      "DeploymentMethod": "FluxCD GitOps",
+      "FeatureFlags": {
+        "EnableDetailedLogging": true,
+        "EnableMetrics": true
+      }
+    }

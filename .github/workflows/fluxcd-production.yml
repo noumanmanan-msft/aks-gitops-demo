@@ -1,0 +1,169 @@
+name: FluxCD Production Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      promote_from_staging:
+        description: 'Promote current staging-flux image to production-flux'
+        required: true
+        default: true
+        type: boolean
+      manual_image_tag:
+        description: 'Manual image tag (leave empty to promote from staging)'
+        required: false
+        type: string
+
+jobs:
+  promote-to-production:
+    runs-on: windows-latest
+    environment: production-flux
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Get image tag for production promotion
+      id: get_production_tag
+      run: |
+        try {
+          if ('${{ github.event.inputs.manual_image_tag }}' -ne '') {
+            $imageTag = '${{ github.event.inputs.manual_image_tag }}'
+            Write-Output "Using manual image tag: $imageTag"
+          } elseif ('${{ github.event.inputs.promote_from_staging }}' -eq 'true') {
+            # Get the current image tag from staging-flux environment
+            $stagingKustomization = Get-Content "environments/fluxcd/staging-flux/kustomization.yaml" -Raw
+            
+            if ($stagingKustomization -match 'newTag:\s*([^\s]+)') {
+              $imageTag = $matches[1]
+              Write-Output "Promoting from staging-flux with image tag: $imageTag"
+            } else {
+              Write-Error "Could not find image tag in staging-flux kustomization.yaml"
+              exit 1
+            }
+          } else {
+            Write-Error "No valid promotion source specified"
+            exit 1
+          }
+          
+          Write-Output "image-tag=$imageTag" >> $env:GITHUB_OUTPUT
+          Write-Output "Selected image tag for production: $imageTag"
+        } catch {
+          Write-Error "Failed to determine production image tag: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: Install Kustomize
+      run: |
+        $kustomizeVersion = "v5.0.1"
+        $url = "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F$kustomizeVersion/kustomize_$kustomizeVersion_windows_amd64.tar.gz"
+        
+        try {
+          Invoke-WebRequest -Uri $url -OutFile "kustomize.tar.gz" -UseBasicParsing
+          tar -xzf kustomize.tar.gz
+          $env:PATH += ";$PWD"
+          Write-Output "Kustomize installed successfully"
+          
+          # Verify installation
+          ./kustomize version
+        } catch {
+          Write-Error "Failed to install Kustomize: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: Update FluxCD Production Environment
+      run: |
+        try {
+          $imageTag = "${{ steps.get_production_tag.outputs.image-tag }}"
+          Write-Output "Promoting image tag $imageTag to FluxCD production-flux environment"
+          
+          # Navigate to production-flux directory
+          cd "environments/fluxcd/production-flux"
+          
+          # Update image tag in kustomization.yaml
+          $kustomizationContent = Get-Content "kustomization.yaml" -Raw
+          $updatedContent = $kustomizationContent -replace 'newTag: .*', "newTag: $imageTag"
+          Set-Content "kustomization.yaml" -Value $updatedContent
+          
+          Write-Output "Production kustomization updated successfully"
+          
+          # Verify the build works
+          ..\..\..\kustomize build .
+          
+        } catch {
+          Write-Error "Failed to update FluxCD production environment: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: Commit and push production changes
+      run: |
+        try {
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action - FluxCD Production"
+          
+          $imageTag = "${{ steps.get_production_tag.outputs.image-tag }}"
+          $promotionSource = if ('${{ github.event.inputs.manual_image_tag }}' -ne '') { "manual" } else { "staging-flux" }
+          
+          # Check if there are changes to commit
+          $changes = git diff --name-only
+          if ($changes) {
+            Write-Output "Changes detected: $changes"
+            
+            git add environments/fluxcd/production-flux/kustomization.yaml
+            git commit -m "FluxCD: Deploy production-flux image $imageTag (promoted from $promotionSource) [skip-ci]"
+            
+            # Push with retry logic
+            $maxRetries = 3
+            $retryCount = 0
+            do {
+              try {
+                git pull --rebase origin main
+                git push origin main
+                Write-Output "Successfully pushed production changes"
+                break
+              } catch {
+                $retryCount++
+                if ($retryCount -lt $maxRetries) {
+                  Write-Output "Push failed, retry $retryCount/$maxRetries in 5 seconds..."
+                  Start-Sleep -Seconds 5
+                } else {
+                  Write-Error "Failed to push after $maxRetries retries: $($_.Exception.Message)"
+                  exit 1
+                }
+              }
+            } while ($retryCount -lt $maxRetries)
+          } else {
+            Write-Output "No changes to commit - production already up to date"
+          }
+        } catch {
+          Write-Error "Git operation failed: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: FluxCD Production Deployment Summary
+      run: |
+        $imageTag = "${{ steps.get_production_tag.outputs.image-tag }}"
+        $promotionSource = if ('${{ github.event.inputs.manual_image_tag }}' -ne '') { "Manual deployment" } else { "Promoted from staging-flux" }
+        
+        Write-Output "=== FluxCD Production Deployment Summary ==="
+        Write-Output "Environment: production-flux"
+        Write-Output "GitOps Tool: FluxCD"
+        Write-Output "Deployed Image Tag: $imageTag"
+        Write-Output "Promotion Source: $promotionSource"
+        Write-Output "Target Namespace: production-flux"
+        Write-Output "Deployment Path: environments/fluxcd/production-flux/"
+        Write-Output "Replicas: 5 (with HPA up to 20)"
+        Write-Output "Service Type: LoadBalancer"
+        Write-Output "Resources: High (512Mi-2Gi memory, 250m-1000m CPU)"
+        Write-Output "==========================================="
+        
+        Write-Output ""
+        Write-Output "🚀 FluxCD Production deployment completed!"
+        Write-Output "This is a manual-triggered deployment requiring approval."
+      shell: powershell

@@ -1,0 +1,164 @@
+name: FluxCD Development Environment
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'aspnet-demo/**'
+      - 'environments/fluxcd/dev-flux/**'
+      - 'fluxcd/**'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: windows-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip-fluxcd]') }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '6.0.x'
+
+    - name: Build ASP.NET application
+      run: |
+        cd aspnet-demo
+        dotnet restore
+        dotnet build --configuration Release --no-restore
+        dotnet publish --configuration Release --no-build --output ./publish
+      shell: powershell
+
+    - name: Login to Azure Container Registry
+      uses: azure/docker-login@v1
+      with:
+        login-server: acrdemoeastus2001.azurecr.io
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+
+    - name: Build and push Docker image
+      id: build_image
+      run: |
+        cd aspnet-demo
+        $commitHash = "${{ github.sha }}".Substring(0, 8)
+        $imageTag = "acrdemoeastus2001.azurecr.io/windows-aspnet:$commitHash"
+        
+        Write-Output "Building image with tag: $imageTag"
+        docker build -f Dockerfile -t $imageTag .
+        
+        Write-Output "Pushing image to registry"
+        docker push $imageTag
+        
+        Write-Output "image-tag=$commitHash" >> $env:GITHUB_OUTPUT
+        Write-Output "full-image-tag=$imageTag" >> $env:GITHUB_OUTPUT
+      shell: powershell
+
+    - name: Install Kustomize
+      run: |
+        $kustomizeVersion = "v5.0.1"
+        $url = "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F$kustomizeVersion/kustomize_$kustomizeVersion_windows_amd64.tar.gz"
+        
+        try {
+          Invoke-WebRequest -Uri $url -OutFile "kustomize.tar.gz" -UseBasicParsing
+          tar -xzf kustomize.tar.gz
+          $env:PATH += ";$PWD"
+          Write-Output "Kustomize installed successfully"
+          
+          # Verify installation
+          ./kustomize version
+        } catch {
+          Write-Error "Failed to install Kustomize: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: Update FluxCD Dev Environment
+      run: |
+        try {
+          $imageTag = "${{ steps.build_image.outputs.image-tag }}"
+          Write-Output "Updating FluxCD dev-flux environment with image tag: $imageTag"
+          
+          # Navigate to dev-flux directory
+          cd "environments/fluxcd/dev-flux"
+          
+          # Update image tag in kustomization.yaml
+          $kustomizationContent = Get-Content "kustomization.yaml" -Raw
+          $updatedContent = $kustomizationContent -replace 'newTag: .*', "newTag: $imageTag"
+          Set-Content "kustomization.yaml" -Value $updatedContent
+          
+          Write-Output "Kustomization updated successfully"
+          
+          # Verify the build works
+          ..\..\..\kustomize build .
+          
+        } catch {
+          Write-Error "Failed to update FluxCD dev environment: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: Commit and push changes
+      run: |
+        try {
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          $imageTag = "${{ steps.build_image.outputs.image-tag }}"
+          
+          # Check if there are changes to commit
+          $changes = git diff --name-only
+          if ($changes) {
+            Write-Output "Changes detected: $changes"
+            
+            git add environments/fluxcd/dev-flux/kustomization.yaml
+            git commit -m "FluxCD: Update dev-flux environment to image $imageTag [skip-ci]"
+            
+            # Push with retry logic
+            $maxRetries = 3
+            $retryCount = 0
+            do {
+              try {
+                git pull --rebase origin main
+                git push origin main
+                Write-Output "Successfully pushed changes"
+                break
+              } catch {
+                $retryCount++
+                if ($retryCount -lt $maxRetries) {
+                  Write-Output "Push failed, retry $retryCount/$maxRetries in 5 seconds..."
+                  Start-Sleep -Seconds 5
+                } else {
+                  Write-Error "Failed to push after $maxRetries retries: $($_.Exception.Message)"
+                  exit 1
+                }
+              }
+            } while ($retryCount -lt $maxRetries)
+          } else {
+            Write-Output "No changes to commit"
+          }
+        } catch {
+          Write-Error "Git operation failed: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: FluxCD Development Deployment Summary
+      run: |
+        $imageTag = "${{ steps.build_image.outputs.image-tag }}"
+        $fullImageTag = "${{ steps.build_image.outputs.full-image-tag }}"
+        
+        Write-Output "=== FluxCD Development Deployment Summary ==="
+        Write-Output "Environment: dev-flux"
+        Write-Output "GitOps Tool: FluxCD"
+        Write-Output "Commit SHA: ${{ github.sha }}"
+        Write-Output "Image Tag: $imageTag"
+        Write-Output "Full Image: $fullImageTag"
+        Write-Output "Namespace: dev-flux"
+        Write-Output "Deployment Path: environments/fluxcd/dev-flux/"
+        Write-Output "============================================="
+      shell: powershell

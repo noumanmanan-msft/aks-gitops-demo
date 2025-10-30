@@ -1,0 +1,146 @@
+name: FluxCD Staging Environment
+
+on:
+  workflow_run:
+    workflows: ["FluxCD Development Environment"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  promote-to-staging:
+    runs-on: windows-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Get latest image tag from dev-flux
+      id: get_image_tag
+      run: |
+        try {
+          # Get the current image tag from dev-flux environment
+          $devKustomization = Get-Content "environments/fluxcd/dev-flux/kustomization.yaml" -Raw
+          
+          if ($devKustomization -match 'newTag:\s*([^\s]+)') {
+            $imageTag = $matches[1]
+            Write-Output "Found image tag from dev-flux: $imageTag"
+            Write-Output "image-tag=$imageTag" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Error "Could not find image tag in dev-flux kustomization.yaml"
+            exit 1
+          }
+        } catch {
+          Write-Error "Failed to get image tag: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: Install Kustomize
+      run: |
+        $kustomizeVersion = "v5.0.1"
+        $url = "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F$kustomizeVersion/kustomize_$kustomizeVersion_windows_amd64.tar.gz"
+        
+        try {
+          Invoke-WebRequest -Uri $url -OutFile "kustomize.tar.gz" -UseBasicParsing
+          tar -xzf kustomize.tar.gz
+          $env:PATH += ";$PWD"
+          Write-Output "Kustomize installed successfully"
+          
+          # Verify installation
+          ./kustomize version
+        } catch {
+          Write-Error "Failed to install Kustomize: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: Update FluxCD Staging Environment
+      run: |
+        try {
+          $imageTag = "${{ steps.get_image_tag.outputs.image-tag }}"
+          Write-Output "Promoting image tag $imageTag to FluxCD staging-flux environment"
+          
+          # Navigate to staging-flux directory
+          cd "environments/fluxcd/staging-flux"
+          
+          # Update image tag in kustomization.yaml
+          $kustomizationContent = Get-Content "kustomization.yaml" -Raw
+          $updatedContent = $kustomizationContent -replace 'newTag: .*', "newTag: $imageTag"
+          Set-Content "kustomization.yaml" -Value $updatedContent
+          
+          Write-Output "Staging kustomization updated successfully"
+          
+          # Verify the build works
+          ..\..\..\kustomize build .
+          
+        } catch {
+          Write-Error "Failed to update FluxCD staging environment: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: Commit and push staging changes
+      run: |
+        try {
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action - FluxCD Staging"
+          
+          $imageTag = "${{ steps.get_image_tag.outputs.image-tag }}"
+          
+          # Check if there are changes to commit
+          $changes = git diff --name-only
+          if ($changes) {
+            Write-Output "Changes detected: $changes"
+            
+            git add environments/fluxcd/staging-flux/kustomization.yaml
+            git commit -m "FluxCD: Promote staging-flux to image $imageTag [skip-ci]"
+            
+            # Push with retry logic
+            $maxRetries = 3
+            $retryCount = 0
+            do {
+              try {
+                git pull --rebase origin main
+                git push origin main
+                Write-Output "Successfully pushed staging changes"
+                break
+              } catch {
+                $retryCount++
+                if ($retryCount -lt $maxRetries) {
+                  Write-Output "Push failed, retry $retryCount/$maxRetries in 5 seconds..."
+                  Start-Sleep -Seconds 5
+                } else {
+                  Write-Error "Failed to push after $maxRetries retries: $($_.Exception.Message)"
+                  exit 1
+                }
+              }
+            } while ($retryCount -lt $maxRetries)
+          } else {
+            Write-Output "No changes to commit - staging already up to date"
+          }
+        } catch {
+          Write-Error "Git operation failed: $($_.Exception.Message)"
+          exit 1
+        }
+      shell: powershell
+
+    - name: FluxCD Staging Deployment Summary
+      run: |
+        $imageTag = "${{ steps.get_image_tag.outputs.image-tag }}"
+        
+        Write-Output "=== FluxCD Staging Promotion Summary ==="
+        Write-Output "Environment: staging-flux"
+        Write-Output "GitOps Tool: FluxCD"
+        Write-Output "Promoted Image Tag: $imageTag"
+        Write-Output "Source Environment: dev-flux"
+        Write-Output "Target Namespace: staging-flux"
+        Write-Output "Deployment Path: environments/fluxcd/staging-flux/"
+        Write-Output "Replicas: 3 (with HPA)"
+        Write-Output "Service Type: LoadBalancer"
+        Write-Output "======================================="
+      shell: powershell
